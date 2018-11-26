@@ -4,7 +4,7 @@ Ambiance lighting system
 
 ## What it looks like
 
-![Preview 1](docs/images/auora.gif)  
+![Preview 1](docs/images/aurora.gif)  
 
 ![Preview 2](docs/images/fire.gif)  
 
