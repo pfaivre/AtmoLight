@@ -24,6 +24,7 @@
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
+#define FASTLED_INTERNAL
 #include <FastLED.h>
 
 #include "Display.h"
