@@ -184,17 +184,18 @@ void Display::Disco() {
     #endif
 }
 
-void Display::SwitchOff()
-{
+void Display::SwitchOff() {
     _remainingTime = 0;
+    _printSolidColor(CRGB(0, 0, 0));
 
     #if LOG >= 2
-        Serial.print(F("SwitchOff"));
+        Serial.println(F("SwitchOff"));
     #endif
 }
 
 void Display::SetRemainingTime(uint16_t seconds) {
     _remainingTime = seconds;
+    _isTransiting = true;
     
     #if LOG >= 2
         Serial.print(F("SetRemainingTime:"));
@@ -208,6 +209,15 @@ void Display::SetColor(CRGB color) {
     _reg8_a = 0;
     _reg8_b = random8();
     _reg8_c = random8();
+
+    #if LOG >= 2
+        Serial.print(F("SetColor "));
+        Serial.print(_currentColor.r);
+        Serial.print(" ");
+        Serial.print(_currentColor.g);
+        Serial.print(" ");
+        Serial.println(_currentColor.b);
+    #endif
 }
 
 void Display::_printSolidColor(CRGB color) {
@@ -276,8 +286,8 @@ void Display::_drawDisco() {
 
     // Transition to fill with initial colors
     if (_isTransiting == true) {
-        // Paint each section for 400 ms
-        if (millis() - _reg16_a >= 400) {
+        // Paint each section for 200 ms
+        if (millis() - _reg16_a >= 200) {
             _reg16_a = millis();
             _reg8_a++;
             _currentColor = CHSV(random8(), random8() / 16 + 239, 255);
@@ -286,14 +296,14 @@ void Display::_drawDisco() {
         }
         else {
             for (byte i = _reg8_a * 10; i < _reg8_a * 10 + 10 && i < LEDS_NUMBER; i++) {
-                strip[i] = blend(strip[i], _currentColor, 24);
+                strip[i] = blend(strip[i], _currentColor, 38);
             }
         }
         return;
     }
     
     // After a few seconds
-    if (millis() - _reg16_a >= random8()*4 + 3000) {
+    if (millis() - _reg16_a >= random8()*6 + 2500) {
         _reg16_a = millis();
         
         // Choose a 10 led section

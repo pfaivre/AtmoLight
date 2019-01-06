@@ -35,6 +35,9 @@ void setup() {
         Serial.println(F("AtmoLight"));
     #endif
 
+    pinMode(13, OUTPUT);
+    digitalWrite(13, LOW);
+
     // The Display's Task method is running in background
     // You just have to call one of the static methods to trigger a light effect
     xTaskCreate(
@@ -49,7 +52,7 @@ void setup() {
     xTaskCreate(
       Io::Task
         ,  NULL
-        ,  128
+        ,  256
         ,  NULL
         ,  2
         ,  NULL
@@ -61,5 +64,3 @@ void loop() {
 
     // All the work is actually done in the FreeRTOS threads
 }
-
-

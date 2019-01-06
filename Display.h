@@ -178,5 +178,3 @@ private:
      */
     static void _drawDisco();
 };
-
-

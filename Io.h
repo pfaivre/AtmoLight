@@ -33,7 +33,7 @@ public:
     static void Task(void *pvParameters);
 
 private:
-    
+    static void _callback(char* topic, byte* payload, unsigned int length);
+    static void _nextMode();
+    static void _var();
 };
-
-

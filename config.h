@@ -52,3 +52,6 @@
 #define IO_BUTTON_VAR_PIN 8
 #define IO_SCAN_DELAY 100 // in milliseconds
 
+#define IO_NETWORKING 1 // 1 activates ethernet connection. 0 disables it.
+#define IO_MAC_ADDRESS { 0x90, 0xA2, 0xDA, 0x0D, 0xF0, 0xF2 } // Mac address of the device (should be written on your ethernet board)
+#define IO_BROKER_ADDRESS "192.168.0.30" // Address of the MQTT broker (e.g. "192.168.0.1").
