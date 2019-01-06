@@ -30,10 +30,21 @@
  */
 class Io {
 public:
-    static void Task(void *pvParameters);
+    static void Setup();
+    static void Loop();
 
 private:
+    /**
+     * Try to connect to the network
+     */
+    static void _connect();
+
+    /**
+     * Callback on an incomming MQTT message
+     */
     static void _callback(char* topic, byte* payload, unsigned int length);
+    
     static void _nextMode();
+    
     static void _var();
 };

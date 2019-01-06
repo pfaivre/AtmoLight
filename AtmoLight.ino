@@ -22,8 +22,6 @@
  * SOFTWARE.
  */
 
-#include <Arduino_FreeRTOS.h>
-
 #include "Display.h"
 #include "Io.h"
 #include "config.h"
@@ -38,29 +36,11 @@ void setup() {
     pinMode(13, OUTPUT);
     digitalWrite(13, LOW);
 
-    // The Display's Task method is running in background
-    // You just have to call one of the static methods to trigger a light effect
-    xTaskCreate(
-      Display::Task
-        ,  NULL // Name (not necessary here)
-        ,  256 // Stack size (in words: 1 word = 2 bytes on AVR)
-        ,  NULL // Parameters
-        ,  2 // Priority (the higher, the more)
-        ,  NULL // Task's handle
-    );
-
-    xTaskCreate(
-      Io::Task
-        ,  NULL
-        ,  256
-        ,  NULL
-        ,  2
-        ,  NULL
-    );
+    Display::Setup();
+    Io::Setup();
 }
 
 void loop() {
-    // Idle. The code here will only be executed when there is no task running
-
-    // All the work is actually done in the FreeRTOS threads
+    Display::Loop();
+    Io::Loop();
 }

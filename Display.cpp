@@ -23,17 +23,18 @@
  */
 
 #include <Arduino.h>
-#include <Arduino_FreeRTOS.h>
 #include <FastLED.h>
 
 #include "Display.h"
 #include "config.h"
 
 CRGB strip[LEDS_NUMBER];
+unsigned long prevMillisCountdown; // Timer used by the remaining time countdown
+unsigned long prevMillisRefresh; // Timer used for the pixel refresh
 
-
-void Display::Task(void *pvParameters) {
-    unsigned long prevMillisCountdown = millis(); // Timer used by the remaining time countdown
+void Display::Setup() {
+    prevMillisCountdown = millis();
+    prevMillisRefresh = millis();
     
     FastLED.addLeds<NEOPIXEL, LEDS_PIN>(strip, LEDS_NUMBER);
     FastLED.setBrightness(LEDS_BRIGHTNESS);
@@ -43,57 +44,55 @@ void Display::Task(void *pvParameters) {
 
     // TODO: At startup, display the last mode
     Display::White();
+}
 
-    for (;;) {
-        while (_remainingTime > 0) {
-            if (_mode == Mode::White || _mode == Mode::SolidColor) {
-                if (_isTransiting && strip[0] != _currentColor) {
-                    _animateToColor(_currentColor);
-                    FastLED.show();
-                }
-                else
-                    _isTransiting = false;
-            }
-            else if (_mode == Mode::Pulse) {
-                fill_solid(strip, LEDS_NUMBER, _currentColor & CRGB(CHSV(0, 0, 64 * cos(0.001 * millis()) + 192)));
+void Display::Loop() {
+    if (_remainingTime > 0 && millis() - prevMillisRefresh >= LEDS_DELAY) {
+        prevMillisRefresh = millis();
+        
+        if (_mode == Mode::White || _mode == Mode::SolidColor) {
+            if (_isTransiting && strip[0] != _currentColor) {
+                _animateToColor(_currentColor);
                 FastLED.show();
             }
-            else if (_mode == Mode::Rainbow) {
-                fill_rainbow(strip, LEDS_NUMBER, _reg8_a++, 255 / LEDS_NUMBER);
-                FastLED.show();
-            }
-            else if (_mode == Mode::Fire) {
-                _drawFire();
-                FastLED.show();
-            }
-            else if (_mode == Mode::Aurora) {
-                _drawAurora();
-                FastLED.show();
-            }
-            else if (_mode == Mode::Disco) {
-                _drawDisco();
-                FastLED.show();
-            }
-            
-            // Countdown
-            if (millis() - prevMillisCountdown >= 1000) {
-                prevMillisCountdown = millis();
-                _remainingTime--;
-
-                // If the time is up
-                if (_remainingTime <= 0) {
-                    #if LOG >= 3
-                        Serial.println(F("Time's up"));
-                    #endif
-                    // Switch the lights off
-                    SolidColor(0x000000);
-                }
-            }
-            
-            vTaskDelay(LEDS_DELAY / portTICK_PERIOD_MS);
+            else
+                _isTransiting = false;
+        }
+        else if (_mode == Mode::Pulse) {
+            fill_solid(strip, LEDS_NUMBER, _currentColor & CRGB(CHSV(0, 0, 64 * cos(0.001 * millis()) + 192)));
+            FastLED.show();
+        }
+        else if (_mode == Mode::Rainbow) {
+            fill_rainbow(strip, LEDS_NUMBER, _reg8_a++, 255 / LEDS_NUMBER);
+            FastLED.show();
+        }
+        else if (_mode == Mode::Fire) {
+            _drawFire();
+            FastLED.show();
+        }
+        else if (_mode == Mode::Aurora) {
+            _drawAurora();
+            FastLED.show();
+        }
+        else if (_mode == Mode::Disco) {
+            _drawDisco();
+            FastLED.show();
         }
         
-        vTaskDelay(LEDS_DELAY / portTICK_PERIOD_MS);
+        // Countdown
+        if (millis() - prevMillisCountdown >= 1000) {
+            prevMillisCountdown = millis();
+            _remainingTime--;
+
+            // If the time is up
+            if (_remainingTime <= 0) {
+                #if LOG >= 3
+                    Serial.println(F("Time's up"));
+                #endif
+                // Switch the lights off
+                SolidColor(0x000000);
+            }
+        }
     }
 }
 
@@ -176,7 +175,7 @@ void Display::Disco() {
         for (byte i = 0; i < LEDS_NUMBER; i++) {
             strip[i] = blend(strip[i], 0x000000, 18);
         }
-        vTaskDelay(16 / portTICK_PERIOD_MS);
+        delay(16);
     }
 
     #if LOG >= 2

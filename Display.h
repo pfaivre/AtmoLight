@@ -47,7 +47,8 @@ enum class Mode : byte {
  */
 class Display {
 public:
-    static void Task(void *pvParameters);
+    static void Setup();
+    static void Loop();
 
     /**
      * White mode

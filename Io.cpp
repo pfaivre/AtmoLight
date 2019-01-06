@@ -23,7 +23,6 @@
  */
 
 #include <Arduino.h>
-#include <Arduino_FreeRTOS.h>
 #include <FastLED.h>
 #include <EthernetClient.h>
 #include <PubSubClient.h>
@@ -37,51 +36,114 @@
     PubSubClient mqtt(eth);
     const char t_lights_all[] = "lights/all";
     const char t_lights_all_color[] = "lights/all/color";
-    bool connected = false;
+    bool ethConnected = false;
+    bool retryLater = true;
 #endif
 
 byte currentMode = 1;
 
-void Io::Task(void *pvParameters) {
-    byte buttonState = LOW;
-    byte lastButtonModeState = LOW;
-    byte lastButtonVarState = LOW;
+byte buttonState = LOW;
+byte lastButtonModeState = LOW;
+byte lastButtonVarState = LOW;
+
+unsigned long prevMillisScan; // Timer used for the IO scan
+unsigned long prevMillisNetwork; // Timer used for the network monitoring
+
+void Io::Setup() {
+    prevMillisScan = millis();
+    prevMillisNetwork = millis();
     
     pinMode(IO_BUTTON_MODE_PIN, INPUT);
     pinMode(IO_BUTTON_VAR_PIN, INPUT);
 
     #if IO_NETWORKING == 1
+        // disable SD card
+        pinMode(4, OUTPUT);
+        digitalWrite(4, HIGH);
+    #endif
+}
+
+void Io::Loop() {
+    if (millis() - prevMillisScan >= IO_SCAN_DELAY) {
+        prevMillisScan = millis();
+        
+        buttonState = digitalRead(IO_BUTTON_MODE_PIN);
+        
+        if (buttonState != lastButtonModeState) {
+            if (buttonState == HIGH) {
+                #if LOG >= 3
+                    Serial.println(F("Button pressed"));
+                #endif
+    
+                _nextMode();
+            }
+        }
+    
+        lastButtonModeState = buttonState;
+    
+        buttonState = digitalRead(IO_BUTTON_VAR_PIN);
+        
+        if (buttonState != lastButtonVarState) {
+            if (buttonState == HIGH) {
+                _var();
+            }
+        }
+    
+        lastButtonVarState = buttonState;
+    
+        #if IO_NETWORKING == 1
+            if (mqtt.connected()) {
+                mqtt.loop();
+            }
+            // TODO: Handle network deconnection/reconnection
+        #endif
+    }
+
+    // Periodically check network status
+    if (millis() - prevMillisNetwork >= (5000 + retryLater ? + 25000 : 0)) {
+        prevMillisNetwork = millis();
+        _connect();
+    }
+}
+
+void Io::_connect() {
+    // Start the ethernet interface and try to get an IP address from the DHCP server.
+    if (!ethConnected) {
         #if LOG >= 1
-            Serial.println(F("Connecting ETH..."));
+            Serial.println(F("Connecting eth..."));
         #endif
         byte mac[] = IO_MAC_ADDRESS;
-        if (Ethernet.begin(mac) == 0) {
-            if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-                digitalWrite(13, HIGH);
-                #if LOG >= 1
-                    Serial.println(F("ETH interface not found"));
-                #endif
-            }
-            if (Ethernet.linkStatus() == LinkOFF) {
-                digitalWrite(13, HIGH);
-                #if LOG >= 1
-                    Serial.println(F("ETH disconnected"));
-                #endif
-            }
-            // In this case the device will remain offline
+        if (Ethernet.begin(mac, 1000) == 0) {
+            digitalWrite(13, LOW);
+            ethConnected = false;
+            #if LOG >= 2
+                Serial.print(F("eth failed "));
+                Serial.println(Ethernet.localIP());
+            #endif
         }
         else {
+            ethConnected = true;
             #if LOG >= 2
                 Serial.print(F("DHCP assigned IP "));
                 Serial.println(Ethernet.localIP());
             #endif
         }
-        
+    }
+
+    // Connect to the MQTT broker
+    if (ethConnected && !mqtt.connected()) {
+        #if LOG >= 2
+            Serial.println(F("Trying to connect to the broker..."));
+        #endif
         mqtt.setServer(IO_BROKER_ADDRESS, 1883);
         mqtt.setCallback(Io::_callback);
-        if (mqtt.connect("lights-1"))
+        char clientId[23]; // "light_xx:xx:xx:xx:xx:xx"
+        byte mac[] = IO_MAC_ADDRESS;
+        sprintf(clientId, "light_%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        if (mqtt.connect(clientId))
         {
-            connected = true;
+            digitalWrite(13, HIGH);
+            retryLater = false;
             mqtt.subscribe(t_lights_all);
             mqtt.subscribe(t_lights_all_color);
             #if LOG >= 1
@@ -90,51 +152,15 @@ void Io::Task(void *pvParameters) {
         }
         else
         {
-            digitalWrite(13, HIGH);
+            digitalWrite(13, LOW);
             #if LOG >= 1
                 Serial.println(F("Failed to connect to broker"));
             #endif
         }
-    #endif
-
-    for (;;) {
-        buttonState = digitalRead(IO_BUTTON_MODE_PIN);
-        
-        if (buttonState != lastButtonModeState) {
-            if (buttonState == HIGH) {
-                #if LOG >= 3
-                    Serial.println(F("Button pressed"));
-                #endif
-
-                _nextMode();
-            }
-            
-            vTaskDelay(50 / portTICK_PERIOD_MS); // Debounce delay
-        }
-
-        lastButtonModeState = buttonState;
-
-        buttonState = digitalRead(IO_BUTTON_VAR_PIN);
-        
-        if (buttonState != lastButtonVarState) {
-            if (buttonState == HIGH) {
-                _var();
-            }
-            
-            vTaskDelay(50 / portTICK_PERIOD_MS); // Debounce delay
-        }
-
-        lastButtonVarState = buttonState;
-
-        #if IO_NETWORKING == 1
-            if (connected) {
-                mqtt.loop();
-            }
-            // TODO: Handle network deconnection/reconnection
-        #endif
-        
-        vTaskDelay(IO_SCAN_DELAY / portTICK_PERIOD_MS);
     }
+
+    if (!mqtt.connected())
+        retryLater = true;
 }
 
 void Io::_callback(char* topic, byte* payload, unsigned int length) {
@@ -214,7 +240,7 @@ void Io::_var() {
     Display::SetColor(newColor);
 
     #if IO_NETWORKING == 1
-        if (connected) {
+        if (mqtt.connected()) {
             char hex[] = "#000000";
             sprintf(hex, "#%02X%02X%02X", newColor.r, newColor.g, newColor.b);
             mqtt.unsubscribe(t_lights_all_color);
