@@ -25,19 +25,21 @@
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
 #include <FastLED.h>
-#include <EthernetClient.h>
-#include <PubSubClient.h>
 
 #include "Display.h"
 #include "Io.h"
 #include "config.h"
 
 #if IO_NETWORKING == 1
+    #include <EthernetClient.h>
+    #include <PubSubClient.h>
+
     EthernetClient eth;
     PubSubClient mqtt(eth);
     const char t_lights_all[] = "lights/all";
     const char t_lights_all_color[] = "lights/all/color";
-    bool connected = false;
+    bool ethConnected = false;
+    unsigned long prevMillisNetwork; // Timer used for the network monitoring
 #endif
 
 byte currentMode = 1;
@@ -51,50 +53,13 @@ void Io::Task(void *pvParameters) {
     pinMode(IO_BUTTON_VAR_PIN, INPUT);
 
     #if IO_NETWORKING == 1
-        #if LOG >= 1
-            Serial.println(F("Connecting ETH..."));
-        #endif
-        byte mac[] = IO_MAC_ADDRESS;
-        if (Ethernet.begin(mac) == 0) {
-            if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-                digitalWrite(13, HIGH);
-                #if LOG >= 1
-                    Serial.println(F("ETH interface not found"));
-                #endif
-            }
-            if (Ethernet.linkStatus() == LinkOFF) {
-                digitalWrite(13, HIGH);
-                #if LOG >= 1
-                    Serial.println(F("ETH disconnected"));
-                #endif
-            }
-            // In this case the device will remain offline
-        }
-        else {
-            #if LOG >= 2
-                Serial.print(F("DHCP assigned IP "));
-                Serial.println(Ethernet.localIP());
-            #endif
-        }
+        prevMillisNetwork = millis();
         
-        mqtt.setServer(IO_BROKER_ADDRESS, 1883);
-        mqtt.setCallback(Io::_callback);
-        if (mqtt.connect("lights-1"))
-        {
-            connected = true;
-            mqtt.subscribe(t_lights_all);
-            mqtt.subscribe(t_lights_all_color);
-            #if LOG >= 1
-                Serial.println(F("Connected to broker"));
-            #endif
-        }
-        else
-        {
-            digitalWrite(13, HIGH);
-            #if LOG >= 1
-                Serial.println(F("Failed to connect to broker"));
-            #endif
-        }
+        // disable SD card
+        pinMode(4, OUTPUT);
+        digitalWrite(4, HIGH);
+
+        _connect();
     #endif
 
     for (;;) {
@@ -102,14 +67,8 @@ void Io::Task(void *pvParameters) {
         
         if (buttonState != lastButtonModeState) {
             if (buttonState == HIGH) {
-                #if LOG >= 3
-                    Serial.println(F("Button pressed"));
-                #endif
-
                 _nextMode();
             }
-            
-            vTaskDelay(50 / portTICK_PERIOD_MS); // Debounce delay
         }
 
         lastButtonModeState = buttonState;
@@ -120,63 +79,139 @@ void Io::Task(void *pvParameters) {
             if (buttonState == HIGH) {
                 _var();
             }
-            
-            vTaskDelay(50 / portTICK_PERIOD_MS); // Debounce delay
         }
 
         lastButtonVarState = buttonState;
 
         #if IO_NETWORKING == 1
-            if (connected) {
+            if (mqtt.connected()) {
                 mqtt.loop();
             }
-            // TODO: Handle network deconnection/reconnection
+
+            // Periodically check network status
+            if (millis() - prevMillisNetwork >= 30000) {
+                prevMillisNetwork = millis();
+                _connect();
+            }
         #endif
         
         vTaskDelay(IO_SCAN_DELAY / portTICK_PERIOD_MS);
     }
 }
 
-void Io::_callback(char* topic, byte* payload, unsigned int length) {
-    #if IO_NETWORKING == 1
-        char buffer[16] = { 0 };
-        for (int i=0; i<length && i<16; i++) {
-            buffer[i] = (char)payload[i];
-        }
-        
-        #if LOG >= 3
-            Serial.print(F("In msg ["));
-            Serial.print(topic);
-            Serial.print("] ");
-            Serial.print(buffer);
-            Serial.println();
-        #endif
+#if IO_NETWORKING == 1
 
-        if (strcmp(buffer, "on") == 0) {
-            Display::SetRemainingTime((uint16_t)0 - 1); // Unlimited
+void Io::_connect() {
+    // Start the ethernet interface and try to get an IP address from the DHCP server.
+    if (!ethConnected) {
+        #if LOG >= 1
+            Serial.println(F("Connecting eth..."));
+        #endif
+        byte mac[] = IO_MAC_ADDRESS;
+        if (Ethernet.begin(mac, 5000) == 0) {
+            digitalWrite(13, LOW);
+            ethConnected = false;
+            #if LOG >= 2
+                Serial.print(F("eth failed "));
+                Serial.println(Ethernet.localIP());
+            #endif
         }
-        else if (strcmp(buffer, "off") == 0) {
-            Display::SwitchOff();
+        else {
+            ethConnected = true;
+            #if LOG >= 2
+                Serial.print(F("DHCP assigned IP "));
+                Serial.println(Ethernet.localIP());
+            #endif
         }
-        else if (strcmp(buffer, "mode") == 0) {
-            _nextMode();
+    }
+
+    // Connect to the MQTT broker
+    if (ethConnected && !mqtt.connected()) {
+        #if LOG >= 2
+            Serial.println(F("Trying to connect to the broker..."));
+        #endif
+        mqtt.setServer(IO_BROKER_ADDRESS, 1883);
+        mqtt.setCallback(Io::_callback);
+        char clientId[23]; // "light_xx:xx:xx:xx:xx:xx"
+        byte mac[] = IO_MAC_ADDRESS;
+        sprintf(clientId, "light_%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        if (mqtt.connect(clientId))
+        {
+            digitalWrite(13, HIGH);
+            mqtt.subscribe(t_lights_all);
+            mqtt.subscribe(t_lights_all_color);
+            #if LOG >= 1
+                Serial.println(F("Connected to broker"));
+            #endif
         }
-        else if (strcmp(buffer, "var") == 0) {
-            _var();
+        else
+        {
+            digitalWrite(13, LOW);
+            #if LOG >= 1
+                Serial.println(F("Failed to connect to broker"));
+            #endif
         }
-        else if (buffer[0] == '#' && length == 7) {
-            byte r, g, b;
-            sscanf(buffer+5, "%02X", &b);
-            buffer[5] = '\0';
-            sscanf(buffer+3, "%02X", &g);
-            buffer[3] = '\0';
-            sscanf(buffer+1, "%02X", &r);
-            
+    }
+}
+
+void Io::_callback(char* topic, byte* payload, unsigned int length) {
+    char buffer[17] = { 0 };
+    strncpy(buffer, (char*)payload, min(16, length));
+    
+    #if LOG >= 3
+        Serial.print(F("In msg ["));
+        Serial.print(topic);
+        Serial.print("] ");
+        Serial.print(buffer);
+        Serial.println();
+    #endif
+
+    if (strcmp(buffer, "on") == 0) {
+        Display::SetRemainingTime((uint16_t)0 - 1); // Unlimited
+    }
+    else if (strcmp(buffer, "off") == 0) {
+        Display::SwitchOff();
+    }
+    else if (strcmp(buffer, "mode") == 0) {
+        _nextMode();
+    }
+    else if (strcmp(buffer, "var") == 0) {
+        _var();
+    }
+    else if (buffer[0] == '#' && length == 7) {
+        byte r=0, g=0, b=0;
+        if (_parseColor(buffer, &r, &g, &b))
+        {
             CRGB newColor(r, g, b);
             Display::SetColor(newColor);
         }
-    #endif
+    }
 }
+
+bool Io::_parseColor(char hex[], byte* r, byte* g, byte* b) {
+    byte tr=0, tg=255, tb=0;
+
+    // For efficiency, we trust here the string is 7 char long. Should be checked above.
+    for (byte i=1; i < 7; i++) {
+        if (!isxdigit(hex[i]))
+            return false;
+    }
+
+    hex[7] = '\0';
+    tb = (byte)strtol(hex+5, NULL, 16);
+    hex[5] = '\0';
+    tg = (byte)strtol(hex+3, NULL, 16);
+    hex[3] = '\0';
+    tr = (byte)strtol(hex+1, NULL, 16);
+    
+    *r = tr;
+    *g = tg;
+    *b = tb;
+
+    return true;
+}
+
+#endif
 
 void Io::_nextMode() {
     currentMode = currentMode >= 7 ? 0 : currentMode + 1;
@@ -214,7 +249,7 @@ void Io::_var() {
     Display::SetColor(newColor);
 
     #if IO_NETWORKING == 1
-        if (connected) {
+        if (mqtt.connected()) {
             char hex[] = "#000000";
             sprintf(hex, "#%02X%02X%02X", newColor.r, newColor.g, newColor.b);
             mqtt.unsubscribe(t_lights_all_color);

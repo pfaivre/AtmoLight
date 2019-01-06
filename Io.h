@@ -33,7 +33,36 @@ public:
     static void Task(void *pvParameters);
 
 private:
+    /**
+     * Connect to the broker through Ethernet.
+     * Does nothing if the connection is already active
+     */
+    static void _connect();
+
+    /**
+     * Callback for the PubSubClient library
+     * Handles incoming messages from the broker
+     */
     static void _callback(char* topic, byte* payload, unsigned int length);
+
+    /**
+     * Parse a color in hexadecimal format
+     * @param hex Input string (e.g. "#f0abe5"). Case insensitive. Will be modified.
+     * @param r Output red value
+     * @param g Output green value
+     * @param b Output blue value
+     * @return true if the parsing is successful
+     */
+    static bool _parseColor(char hex[], byte* r, byte* g, byte* b);
+
+    /**
+     * Change to the next mode
+     */
     static void _nextMode();
+
+    /**
+     * Select a new variation of the current mode
+     * Doesn't affect all the modes
+     */
     static void _var();
 };
