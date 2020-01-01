@@ -1,7 +1,7 @@
 /**
  * AtmoLight
  *
- * Copyright (C) 2016-2018 Pierre Faivre
+ * Copyright (C) 2016-2020 Pierre Faivre
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,11 +24,15 @@
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
+#include <EEPROM.h>
 #define FASTLED_INTERNAL
 #include <FastLED.h>
 
 #include "Display.h"
 #include "config.h"
+
+// Arbitrary byte sequence used to determine if the EEPROM have been written in the past
+#define EEPROM_MAGIC_NUMBER 0b0110100010110110
 
 CRGB strip[LEDS_NUMBER];
 
@@ -42,8 +46,7 @@ void Display::Task(void *pvParameters) {
     // Set a seed from analog input to get different values each start
     random16_set_seed(analogRead(0));
 
-    // TODO: At startup, display the last mode
-    Display::White();
+    Display::LoadState();
 
     for (;;) {
         while (_remainingTime > 0) {
@@ -90,10 +93,17 @@ void Display::Task(void *pvParameters) {
                     SolidColor(0x000000);
                 }
             }
+
+            // Handle save state request after a short delay
+            if (_saveStateRequested && (millis() - _prevMillisSaveState >= 5000)) {
+                _saveStateRequested = false;
+    
+                _saveState();
+            }
             
             vTaskDelay(LEDS_DELAY / portTICK_PERIOD_MS);
         }
-        
+
         vTaskDelay(LEDS_DELAY / portTICK_PERIOD_MS);
     }
 }
@@ -283,7 +293,7 @@ void Display::_drawAurora() {
 
 
 void Display::_drawDisco() {
-    // In this mode _reg16_a is the last millis() and _reg8_a is the seleced section
+    // In this mode _reg16_a is the last millis() and _reg8_a is the selected section
 
     // Transition to fill with initial colors
     if (_isTransiting == true) {
@@ -321,6 +331,80 @@ void Display::_drawDisco() {
     }
 }
 
+void Display::RequestSaveState() {
+    _saveStateRequested = true;
+    _prevMillisSaveState = millis();
+}
+
+void Display::_saveState() {
+    int eepromCursor = 0;
+
+    #if LOG >= 2
+        Serial.println(F("Saving state to EEPROM"));
+    #endif
+
+    uint16_t eepromMagicNumber = EEPROM_MAGIC_NUMBER;
+    
+    EEPROM.put(eepromCursor, eepromMagicNumber);
+    eepromCursor += sizeof(eepromMagicNumber);
+    
+    EEPROM.put(eepromCursor, _remainingTime);
+    eepromCursor += sizeof(_remainingTime);
+
+    EEPROM.put(eepromCursor, _mode);
+    eepromCursor += sizeof(_mode);
+
+    EEPROM.put(eepromCursor, _currentColor);
+    eepromCursor += sizeof(_currentColor);
+
+    EEPROM.put(eepromCursor, _reg8_b);
+    eepromCursor += sizeof(_reg8_b);
+
+    EEPROM.put(eepromCursor, _reg8_c);
+    eepromCursor += sizeof(_reg8_c);
+}
+
+void Display::LoadState() {
+    int eepromCursor = 0;
+
+    #if LOG >= 2
+        Serial.println(F("Loading state from EEPROM"));
+    #endif
+
+    uint16_t eepromMagicNumber = 0;
+
+    // First two bytes are the magic number indicating if state have been written previously
+    EEPROM.get(eepromCursor, eepromMagicNumber);
+    eepromCursor += sizeof(eepromMagicNumber);
+
+    // If it does not correspond, it means this EEPROM does not contain state data
+    if (eepromMagicNumber != EEPROM_MAGIC_NUMBER) {
+        #if LOG >= 2
+            Serial.println(F("No data on EEPROM"));
+        #endif
+
+        // Default to white display
+        Display::White();
+
+        return;
+    }
+
+    EEPROM.get(eepromCursor, _remainingTime);
+    eepromCursor += sizeof(_remainingTime);
+
+    EEPROM.get(eepromCursor, _mode);
+    eepromCursor += sizeof(_mode);
+
+    EEPROM.get(eepromCursor, _currentColor);
+    eepromCursor += sizeof(_currentColor);
+
+    EEPROM.get(eepromCursor, _reg8_b);
+    eepromCursor += sizeof(_reg8_b);
+
+    EEPROM.get(eepromCursor, _reg8_c);
+    eepromCursor += sizeof(_reg8_c);
+}
+
 uint16_t Display::_remainingTime = 0;
 
 Mode Display::_mode = Mode::Off;
@@ -335,4 +419,8 @@ uint8_t Display::_reg8_c = 0;
 
 unsigned long Display::_reg16_a = 0;
 
-bool Display::_isTransiting = false;
+bool Display::_isTransiting = true;
+
+bool Display::_saveStateRequested = false;
+
+unsigned long Display::_prevMillisSaveState = 0;

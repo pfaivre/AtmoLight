@@ -1,7 +1,7 @@
 /**
  * AtmoLight
  *
- * Copyright (C) 2016-2018 Pierre Faivre
+ * Copyright (C) 2016-2020 Pierre Faivre
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -187,6 +187,8 @@ void Io::_callback(char* topic, byte* payload, unsigned int length) {
             Display::SetColor(newColor);
         }
     }
+
+    Display::RequestSaveState();
 }
 
 bool Io::_parseColor(char hex[], byte* r, byte* g, byte* b) {
@@ -243,6 +245,8 @@ void Io::_nextMode() {
             Display::Disco();
             break;
     }
+
+    Display::RequestSaveState();
 }
 
 void Io::_var() {
@@ -258,4 +262,6 @@ void Io::_var() {
             mqtt.subscribe(t_lights_all_color);
         }
     #endif
+
+    Display::RequestSaveState();
 }

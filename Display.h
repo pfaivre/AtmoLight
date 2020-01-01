@@ -1,7 +1,7 @@
 /**
  * AtmoLight
  *
- * Copyright (C) 2016-2018 Pierre Faivre
+ * Copyright (C) 2016-2020 Pierre Faivre
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -106,6 +106,18 @@ public:
      */
     static void SwitchOff();
 
+    /**
+     * Request a save state to the EEPROM.
+     * The saving will be performed after a short delay.
+     * If several calls to this method are performed consecutivelly in a short period, the saving will be performed only once.
+     */
+    static void RequestSaveState();
+
+    /**
+     * Load the state from the EEPROM and apply it.
+     */
+    static void LoadState();
+
 private:
     /**
      * DisplayMode
@@ -150,6 +162,16 @@ private:
     static bool _isTransiting;
 
     /**
+     * Indicates if a state saving have been requested
+     */
+    static bool _saveStateRequested;
+
+    /**
+     * Timer used to save the state after a short delay following a save request
+     */
+    static unsigned long _prevMillisSaveState;
+
+    /**
      * Print the same color on every led of the ring
      */
     static void _printSolidColor(CRGB color);
@@ -178,4 +200,9 @@ private:
      * The core logic for the Disco mode
      */
     static void _drawDisco();
+
+    /**
+     * Save the current state to the EEPROM
+     */
+    static void _saveState();
 };
